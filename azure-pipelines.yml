@@ -5,55 +5,119 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  acrName: 'mohitacr123'
-  acrLoginServer: 'mohitacr123.azurecr.io'
-  imageName: 'webservice'
-  webAppName: 'mohit-webapp-123'
   resourceGroup: 'mohit-rg'
+  location: 'centralindia'
+  acrName: 'mohitacr12345'
+  acrLoginServer: 'mohitacr12345.azurecr.io'
+  appServicePlan: 'mohit-app-plan'
+  webAppName: 'mohit-webapp-12345'
+  imageName: 'webservice'
 
 stages:
 
-# ======================
-# BUILD & PUSH STAGE
-# ======================
-- stage: Build
-  displayName: Build and Push Image
+# =========================
+# STAGE 1 - CREATE INFRA
+# =========================
+- stage: Infrastructure
   jobs:
-  - job: BuildAndPush
+  - job: CreateResources
     steps:
     - task: AzureCLI@2
-      displayName: Build and Push to ACR
-      inputs:
-        azureSubscription: 'RD-SP'   # Your Azure RM Service Connection
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          echo "Logging into ACR..."
-          az acr login --name $(acrName)
-
-          echo "Building Docker Image..."
-          docker build -t $(acrLoginServer)/$(imageName):latest .
-
-          echo "Pushing Image to ACR..."
-          docker push $(acrLoginServer)/$(imageName):latest
-
-
-# ======================
-# DEPLOY STAGE
-# ======================
-- stage: Deploy
-  displayName: Deploy to Web App
-  dependsOn: Build
-  jobs:
-  - job: DeployToWebApp
-    steps:
-    - task: AzureCLI@2
-      displayName: Update Web App Container
       inputs:
         azureSubscription: 'RD-SP'
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
+
+          echo "Creating Resource Group..."
+          az group create \
+            --name $(resourceGroup) \
+            --location $(location)
+
+          echo "Creating ACR..."
+          az acr create \
+            --resource-group $(resourceGroup) \
+            --name $(acrName) \
+            --sku Basic
+
+          echo "Creating App Service Plan..."
+          az appservice plan create \
+            --name $(appServicePlan) \
+            --resource-group $(resourceGroup) \
+            --is-linux \
+            --sku B1
+
+          echo "Creating Web App..."
+          az webapp create \
+            --resource-group $(resourceGroup) \
+            --plan $(appServicePlan) \
+            --name $(webAppName) \
+            --deployment-container-image-name nginx
+
+          echo "Assign Managed Identity..."
+          az webapp identity assign \
+            --name $(webAppName) \
+            --resource-group $(resourceGroup)
+
+          PRINCIPAL_ID=$(az webapp identity show \
+            --name $(webAppName) \
+            --resource-group $(resourceGroup) \
+            --query principalId --output tsv)
+
+          echo "Assign AcrPull Role..."
+          ACR_ID=$(az acr show \
+            --name $(acrName) \
+            --query id --output tsv)
+
+          az role assignment create \
+            --assignee $PRINCIPAL_ID \
+            --scope $ACR_ID \
+            --role AcrPull
+
+          echo "Setting Port..."
+          az webapp config appsettings set \
+            --resource-group $(resourceGroup) \
+            --name $(webAppName) \
+            --settings WEBSITES_PORT=5000
+
+
+# =========================
+# STAGE 2 - BUILD & PUSH
+# =========================
+- stage: Build
+  dependsOn: Infrastructure
+  jobs:
+  - job: BuildAndPush
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'RD-SP'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          az acr login --name $(acrName)
+
+          docker build -t $(acrLoginServer)/$(imageName):latest .
+
+          docker push $(acrLoginServer)/$(imageName):latest
+
+
+# =========================
+# STAGE 3 - DEPLOY
+# =========================
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - job: DeployToWebApp
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'RD-SP'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
           az webapp config container set \
             --name $(webAppName) \
             --resource-group $(resourceGroup) \
