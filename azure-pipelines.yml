@@ -1,35 +1,61 @@
 trigger:
-- dev
+- main
 
 pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  acrName: 'mohitacr123.azurecr.io'
+  acrName: 'mohitacr123'
+  acrLoginServer: 'mohitacr123.azurecr.io'
   imageName: 'webservice'
   webAppName: 'mohit-webapp-123'
+  resourceGroup: 'mohit-rg'
 
 stages:
+
+# ======================
+# BUILD & PUSH STAGE
+# ======================
 - stage: Build
+  displayName: Build and Push Image
   jobs:
   - job: BuildAndPush
     steps:
-    - task: Docker@2
+    - task: AzureCLI@2
+      displayName: Build and Push to ACR
       inputs:
-        containerRegistry: RD-SP
-        repository: 'webservice'
-        command: 'buildAndPush'
-        Dockerfile: 'Dockerfile'
-        tags: |
-          latest
+        azureSubscription: 'RD-SP'   # Your Azure RM Service Connection
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Logging into ACR..."
+          az acr login --name $(acrName)
 
+          echo "Building Docker Image..."
+          docker build -t $(acrLoginServer)/$(imageName):latest .
+
+          echo "Pushing Image to ACR..."
+          docker push $(acrLoginServer)/$(imageName):latest
+
+
+# ======================
+# DEPLOY STAGE
+# ======================
 - stage: Deploy
+  displayName: Deploy to Web App
   dependsOn: Build
   jobs:
   - job: DeployToWebApp
     steps:
-    - task: AzureWebAppContainer@1
+    - task: AzureCLI@2
+      displayName: Update Web App Container
       inputs:
-        azureSubscription: RD-SP
-        appName: '$(webAppName)'
-        containers: '$(acrName)/$(imageName):latest'
+        azureSubscription: 'RD-SP'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az webapp config container set \
+            --name $(webAppName) \
+            --resource-group $(resourceGroup) \
+            --docker-custom-image-name $(acrLoginServer)/$(imageName):latest \
+            --docker-registry-server-url https://$(acrLoginServer)
