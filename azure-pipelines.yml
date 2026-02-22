@@ -16,7 +16,7 @@ stages:
     steps:
     - task: Docker@2
       inputs:
-        containerRegistry: 'ACR-ServiceConnection'
+        containerRegistry: RD-SP
         repository: 'webservice'
         command: 'buildAndPush'
         Dockerfile: 'Dockerfile'
@@ -30,6 +30,6 @@ stages:
     steps:
     - task: AzureWebAppContainer@1
       inputs:
-        azureSubscription: 'Azure-ServiceConnection'
+        azureSubscription: RD-SP
         appName: '$(webAppName)'
         containers: '$(acrName)/$(imageName):latest'
