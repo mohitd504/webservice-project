@@ -1,0 +1,35 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  acrName: 'mohitacr123.azurecr.io'
+  imageName: 'webservice'
+  webAppName: 'mohit-webapp-123'
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildAndPush
+    steps:
+    - task: Docker@2
+      inputs:
+        containerRegistry: 'ACR-ServiceConnection'
+        repository: 'webservice'
+        command: 'buildAndPush'
+        Dockerfile: 'Dockerfile'
+        tags: |
+          latest
+
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - job: DeployToWebApp
+    steps:
+    - task: AzureWebAppContainer@1
+      inputs:
+        azureSubscription: 'Azure-ServiceConnection'
+        appName: '$(webAppName)'
+        containers: '$(acrName)/$(imageName):latest'
